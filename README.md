@@ -1,29 +1,43 @@
+#  Covid-19 Era Higher Education Employment Analysis — IPUMS-CPS
+
+## Replicating the Data Extract
+
+Data comes from IPUMS CPS Basic Monthly (https://cps.ipums.org).
+
+Extract settings: all monthly samples January 2017–February 2021.
+
+Variables: AGE, AHRSWORKT, ASECFLAG, CLASSWKR, COMPWT, CPSID, CPSIDP,
+           EDUC, EMPSTAT, HISPAN, IND, IND1990, MONTH, OCC, OCC1990,
+           OCC2010, PERNUM, RACE, SERIAL, SEX, WHYUNEMP, WTFINL, YEAR
+
+No case-level filters were applied at extraction.
+
+Place downloaded .dat.gz and .xml files in download/cps_00005/.
+
+## SETUP
 
 ```{r}
-# ==============================================================================
-# Covid-19 Era Higher Education Employment Analysis — IPUMS-CPS
-# ==============================================================================
-
-
-# SETUP
-
 library(ipumsr)
 library(tidyverse)
 library(scales)
 library(openxlsx)
+```
 
+```{r}
 EXPORT_DIR <- "~/GitHub/r-covid-ihe-employment/exports/"
 dir.create(EXPORT_DIR, showWarnings = FALSE)
+```
 
+## ALGEBRA
 
-# ALGEBRA
-
+```{r}
 ddi  <- read_ipums_ddi("~/GitHub/r-covid-ihe-employment/download/cps_00005/cps_00005.xml")
 data <- read_ipums_micro(ddi)
+```
 
+## CLASSIFY
 
-# CLASSIFY
-
+```{r}
 data <- data %>%
   mutate(
     across(c(YEAR, MONTH, EMPSTAT, IND1990, OCC1990, AHRSWORKT, AGE, RACE, HISPAN, SEX), as.numeric),
@@ -76,11 +90,12 @@ data <- data %>%
       between(AGE, 55, 64) ~ "55-64",
       between(AGE, 65, 74) ~ "65-74",
       between(AGE, 75, 99) ~ "75+"
-    ),
-    
-    
-    
-    # Occupations of interest
+    ), 
+```
+  
+## Occupations of interest
+
+```{r}
     occ_s_of_interest = case_when(
       between(OCC1990, 113, 154) ~ "Instructors (Postsecondary)",
       between(OCC1990, 303, 391) ~ "Administrative Support",
@@ -215,10 +230,11 @@ data <- data %>%
       between(OCC1990, 875, 890) ~ "Freight, Stock & Material Handlers"
     )
   )
+```
 
+## HIGHER ED SUBSET
 
-# HIGHER ED SUBSET
-
+```{r}
 higher_ed <- data %>%
   filter(
     YEAR    %in% 2017:2021,
@@ -226,11 +242,11 @@ higher_ed <- data %>%
     EMPSTAT %in% c(10, 12),
     IND1990 %in% c(850, 851)
   )
+```
 
+## SUMMARISE
 
-# SUMMARISE
-
-
+```{r}
 summarise_by <- function(df, grp_col) {
   df %>%
     group_by(date, group = .data[[grp_col]]) %>%
@@ -263,29 +279,33 @@ by_occ_code <- higher_ed %>%
     n_unweighted = n_distinct(CPSIDP, na.rm = TRUE),
     .groups = "drop"
   )
+```
 
 
+## Employment by occupation groups (l1-l4)
 
-
-# Employment by occupation groups (l1-l4)
+```{r}
 by_occ_l1 <- summarise_by(higher_ed, "occ_group_l1")
 by_occ_l2 <- summarise_by(higher_ed, "occ_group_l2")
 by_occ_l3 <- summarise_by(higher_ed, "occ_group_l3")
 by_occ_l4 <- summarise_by(higher_ed, "occ_group_l4")
+```
 
 
+## Employment by ...
 
-
-# Employment by ...
+```{r}
 by_race     <- summarise_by(higher_ed, "race_label")
 by_poc      <- summarise_by(higher_ed, "poc_label")
 by_hispanic <- summarise_by(higher_ed, "hispanic_label")
 by_age      <- summarise_by(higher_ed, "age_group")
+```
 
 
 
+##  While workers of color represent just a quarter of higher ed's labor force ... [prep]
 
-#  While workers of color represent just a quarter of higher ed's labor force ... [prep]
+```{r}
 feb2021_poc_share <- data %>%
   filter(
     YEAR == 2021, MONTH == 2,
@@ -298,11 +318,14 @@ feb2021_poc_share <- data %>%
   group_by(poc_label) %>%
   summarise(n_weighted = sum(COMPWT), .groups = "drop") %>%
   mutate(share = n_weighted / sum(n_weighted))
+```
 
 
 
 
-#  ... more than half of the workers who lost jobs have been nonwhite [prep]
+##  ... more than half of the workers who lost jobs have been nonwhite [prep]
+
+```{r}
 race_net_change <- data %>%
   filter(
     YEAR    %in% c(2020, 2021),
@@ -317,11 +340,13 @@ race_net_change <- data %>%
   mutate(net_loss = yr_2020 - yr_2021) %>%
   filter(!is.na(race_label), race_label != "Unknown", net_loss > 0) %>%
   mutate(share_of_losses = net_loss / sum(net_loss))
+```
 
 
 
+##  The youngest workers saw big drops [prep]
 
-#  The youngest workers saw big drops [prep]
+```{r}
 age_net_change <- data %>%
   filter(
     YEAR    %in% c(2020, 2021),
@@ -334,13 +359,14 @@ age_net_change <- data %>%
   summarise(n_weighted = sum(COMPWT), .groups = "drop") %>%
   pivot_wider(names_from = YEAR, values_from = n_weighted, names_prefix = "yr_") %>%
   mutate(net_change = yr_2021 - yr_2020)
+```
 
 
 
 
+## EXPORT
 
-# EXPORT
-
+```{r}
 wb <- createWorkbook()
 
 add_sheet <- function(wb, df, name) {
@@ -363,12 +389,13 @@ add_sheet(wb, race_net_change,       "Race_Net_Change_Feb20_Feb21")
 add_sheet(wb, age_net_change,        "Age_Net_Change_Feb20_Feb21")
 
 saveWorkbook(wb, file.path(EXPORT_DIR, "higher_ed_employment.xlsx"), overwrite = TRUE)
+```
 
 
 
+## CHARTS
 
-# CHARTS
-
+```{r}
 theme_report <- theme_minimal(base_size = 12) +
   theme(
     plot.title       = element_text(face = "bold"),
@@ -400,11 +427,12 @@ occ_s_of_interest_colors <- c(
   "Cleaning & Building Service" = "green4",
   "Food Preparation & Service"  = "red3"
 )
+```
 
 
+## Chart 1 --  While workers of color represent just a quarter of higher ed's labor force ...
 
-# Chart 1 --  While workers of color represent just a quarter of higher ed's labor force ...
-
+```{r}
 chart_poc_share <- feb2021_poc_share %>%
   mutate(dummy = "Higher Ed Workforce") %>%
   ggplot(aes(x = dummy, y = share, fill = fct_rev(poc_label))) +
@@ -428,12 +456,13 @@ ggsave(
   file.path(EXPORT_DIR, "chart_poc_workforce_share.png"),
   chart_poc_share, width = 8, height = 2, dpi = 150
 )
+```
 
 
 
+## Chart 2 --  ... more than half of the workers who lost jobs have been nonwhite
 
-# Chart 2 --  ... more than half of the workers who lost jobs have been nonwhite
-
+```{r}
 race_order <- race_net_change %>% arrange(desc(net_loss)) %>% pull(race_label)
 
 chart_race_losses <- race_net_change %>%
@@ -464,12 +493,13 @@ ggsave(
   file.path(EXPORT_DIR, "chart_race_job_losses.png"),
   chart_race_losses, width = 8, height = 3.5, dpi = 150
 )
+```
 
 
 
+## Chart 3 -- The faculty and lower-paid staffers endured significant job losses
 
-# Chart 3 -- The faculty and lower-paid staffers endured significant job losses
-
+```{r}
 chart_occ_trend <- higher_ed %>%
   filter(!is.na(occ_s_of_interest), YEAR == 2020) %>%
   group_by(date, occ_s_of_interest) %>%
@@ -488,12 +518,13 @@ ggsave(
   file.path(EXPORT_DIR, "chart_occ_trend_2020.png"),
   chart_occ_trend, width = 9, height = 5, dpi = 150
 )
+```
 
 
 
+## Chart 4 -- Youngest workers saw big drops
 
-# Chart 4 -- Youngest workers saw big drops
-
+```{r}
 chart_age <- age_net_change %>%
   filter(!is.na(age_group)) %>%
   ggplot(aes(x = net_change / 1e3, y = fct_rev(age_group), fill = net_change < 0)) +
@@ -514,12 +545,13 @@ ggsave(
   file.path(EXPORT_DIR, "chart_age_net_change.png"),
   chart_age, width = 7, height = 4, dpi = 150
 )
+```
 
 
 
+## Chart 5 -- Postsecondary instructor employment by work status
 
-# Chart 5 -- Postsecondary instructor employment by work status
-
+```{r}
 chart_ftpt <- instructors_by_status %>%
   filter(!is.na(work_status)) %>%
   ggplot(aes(x = date, y = n_weighted / 1e6, color = work_status)) +
@@ -533,10 +565,10 @@ chart_ftpt <- instructors_by_status %>%
     subtitle = "2017–2021"
   ) +
   theme_report
+```
 
 
-
-
+```{r}
 ggsave(
   file.path(EXPORT_DIR, "chart_instructors_ftpt.png"),
   chart_ftpt, width = 9, height = 5, dpi = 150
@@ -544,4 +576,3 @@ ggsave(
 
 message("Outputs written to '", EXPORT_DIR, "~/GitHub/r-covid-ihe-employment/exports/'.")
 ```
-
